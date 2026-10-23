@@ -22,14 +22,21 @@ def close_db(exception):
 
 def buscar_funciones(query, sort_by='nombre', sort_dir='ASC'):
     db = get_db()
-    sql = f"SELECT peliculas.nombre as pelicula, funciones.fecha_hora, " \
-          f"(funciones.asientos_totales - funciones.asientos_ocupados) as disponibles " \
-          f"FROM funciones " \
-          f"JOIN peliculas ON funciones.pelicula_id = peliculas.id " \
-          f"WHERE peliculas.nombre LIKE '%{query}%' " \
-          f"ORDER BY {'peliculas.nombre' if sort_by == 'nombre' else 'funciones.fecha_hora'} " \
-          f"{sort_dir}"
-    return db.execute(sql).fetchall()
+
+    # White list donde la columna y el sentido de ordenamiento tienen valores fijos y conocidos.
+    sort_column = 'peliculas.nombre' if sort_by == 'nombre' else 'funciones.fecha_hora'
+    sort_direction = 'DESC' if str(sort_dir).upper() == 'DESC' else 'ASC'
+
+    # El valor de busqueda va como parametro (placeholder ?) así el motor lo maneja como dato y ya no como SQL.
+    sql = "SELECT peliculas.nombre as pelicula, funciones.fecha_hora, " \
+          "(funciones.asientos_totales - funciones.asientos_ocupados) as disponibles " \
+          "FROM funciones " \
+          "JOIN peliculas ON funciones.pelicula_id = peliculas.id " \
+          "WHERE peliculas.nombre LIKE ? " \
+          f"ORDER BY {sort_column} {sort_direction}"
+
+    like_pattern = f"%{query}%"
+    return db.execute(sql, (like_pattern,)).fetchall()
 
 
 @app.route('/')
@@ -50,5 +57,5 @@ def index():
 if __name__ == '__main__':
     import os
     host=os.environ.get('FLASK_HOST', '0.0.0.0')
-    debug = os.environ.get('DEBUG_MODE', 'true').lower() in ('true', '1', 'yes')
+    debug = os.environ.get('DEBUG_MODE', 'false').lower() in ('true', '1', 'yes')
     app.run(debug=debug,host=host)

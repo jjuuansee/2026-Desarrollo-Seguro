@@ -1,6 +1,5 @@
 package com.cinebuscador.controller;
 
-import com.cinebuscador.config.SpelEvaluator;
 import com.cinebuscador.model.Funcion;
 import com.cinebuscador.repository.FuncionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,12 +16,10 @@ import java.util.stream.Collectors;
 public class FuncionController {
 
     private final FuncionRepository funcionRepo;
-    private final SpelEvaluator spelEval;
 
     @Autowired
-    public FuncionController(FuncionRepository funcionRepo, SpelEvaluator spelEval) {
+    public FuncionController(FuncionRepository funcionRepo) {
         this.funcionRepo = funcionRepo;
-        this.spelEval = spelEval;
     }
 
     @GetMapping("/")
@@ -39,15 +36,15 @@ public class FuncionController {
             return "index";
         }
 
-        String spelResultado = spelEval.evaluate(buscar);
+        String spelResultado = buscar;
 
         model.addAttribute("spelOutput", spelResultado);
 
         if (!spelResultado.isBlank()) {
             List<Funcion> resultados = funcionRepo.findAll().stream()
-                .filter(f -> f.getNombreFuncion() != null &&
-                             f.getNombreFuncion().toLowerCase().contains(spelResultado.toLowerCase()))
-                .collect(Collectors.toList());
+                    .filter(f -> f.getNombreFuncion() != null &&
+                            f.getNombreFuncion().toLowerCase().contains(spelResultado.toLowerCase()))
+                    .collect(Collectors.toList());
             model.addAttribute("resultados", resultados);
             model.addAttribute("mensaje", "Resultados buscando por: " + spelResultado);
         } else {

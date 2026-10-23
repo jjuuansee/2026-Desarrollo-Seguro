@@ -16,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.MediaTypeFactory;
 import org.springframework.core.io.UrlResource;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,6 +24,11 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+
+import javax.imageio.ImageIO;
+
+import java.awt.image.BufferedImage;
 
 @Controller
 public class PeliculaController {
@@ -38,9 +44,9 @@ public class PeliculaController {
 
     @GetMapping("/")
     public String index(@RequestParam(required = false) String buscar,
-                        @RequestParam(required = false, defaultValue = "nombre") String ordenarPor,
-                        @RequestParam(required = false, defaultValue = "ASC") String sentido,
-                        Model model) {
+            @RequestParam(required = false, defaultValue = "nombre") String ordenarPor,
+            @RequestParam(required = false, defaultValue = "ASC") String sentido,
+            Model model) {
 
         if (buscar != null && !buscar.isBlank()) {
             List<Object[]> resultadosRaw;
@@ -54,8 +60,8 @@ public class PeliculaController {
             List<Map<String, Object>> resultados = new java.util.ArrayList<>();
             for (Object[] row : resultadosRaw) {
                 Map<String, Object> map = new HashMap<>();
-                map.put("id",        row[0]);
-                map.put("nombre",    row[1]);
+                map.put("id", row[0]);
+                map.put("nombre", row[1]);
                 map.put("fechaHora", row[2]);
                 map.put("disponibles", row[3]);
                 map.put("descripcion", row[4]);
@@ -74,25 +80,55 @@ public class PeliculaController {
     @GetMapping("/upload/{id}")
     public String uploadForm(@PathVariable Integer id, Model model) {
         Pelicula pelicula = peliculaRepo.findById(id)
-            .orElseThrow(() -> new EntityNotFoundException("Pelicula no encontrada"));
+                .orElseThrow(() -> new EntityNotFoundException("Pelicula no encontrada"));
         model.addAttribute("pelicula", pelicula);
         return "upload";
     }
 
     @PostMapping("/upload/{id}")
     public String uploadFile(@PathVariable Integer id,
-                             @RequestParam("afiche") MultipartFile archivo) throws IOException {
+            @RequestParam("afiche") MultipartFile archivo) throws IOException {
         Pelicula pelicula = peliculaRepo.findById(id)
-            .orElseThrow(() -> new EntityNotFoundException("Pelicula no encontrada"));
+                .orElseThrow(() -> new EntityNotFoundException("Pelicula no encontrada"));
 
-        String filename = archivo.getOriginalFilename();
+        if (archivo.isEmpty()) {
+            throw new IllegalArgumentException("El archivo esta vacio");
+        }
+
+        // Whitelist de extensiones de imagen
+        List<String> extensionesPermitidas = List.of("png", "jpg", "jpeg", "gif");
+
+        String originalName = archivo.getOriginalFilename();
+        String extension = "";
+        if (originalName != null && originalName.contains(".")) {
+            extension = originalName.substring(originalName.lastIndexOf('.') + 1).toLowerCase();
+        }
+        if (!extensionesPermitidas.contains(extension)) {
+            throw new IllegalArgumentException("Tipo de archivo no permitido");
+        }
+
+        // Validación de que el contenido sea una imagen
+        byte[] contenido = archivo.getBytes();
+        BufferedImage imagen = ImageIO.read(new ByteArrayInputStream(contenido));
+        if (imagen == null) {
+            throw new IllegalArgumentException("El archivo no es una imagen valida");
+        }
+
+        // Nombre nuevo aleatorio (descartando el original)
+        String nuevoNombre = UUID.randomUUID().toString() + "." + extension;
+
         Path uploadPath = Paths.get(uploadDir);
         if (!Files.exists(uploadPath)) {
             Files.createDirectories(uploadPath);
         }
-        Files.copy(archivo.getInputStream(), uploadPath.resolve(filename));
 
-        pelicula.setAfichePath(filename);
+        Path destino = uploadPath.resolve(nuevoNombre).normalize();
+        if (!destino.startsWith(uploadPath)) {
+            throw new IllegalArgumentException("Ruta invalida");
+        }
+        Files.write(destino, contenido);
+
+        pelicula.setAfichePath(nuevoNombre);
         peliculaRepo.save(pelicula);
 
         return "redirect:/";
@@ -101,19 +137,24 @@ public class PeliculaController {
     @GetMapping("/uploads/{filename:.+}")
     @ResponseBody
     public ResponseEntity<Resource> serveFile(@PathVariable String filename) throws IOException {
-        Path filePath = Paths.get(uploadDir).resolve(filename).normalize();
+        Path uploadPath = Paths.get(uploadDir).toAbsolutePath().normalize();
+        Path filePath = uploadPath.resolve(filename).normalize();
+        if (!filePath.startsWith(uploadPath)) {
+            return ResponseEntity.badRequest().build();
+        }
+
         Resource resource = new UrlResource(filePath.toUri());
         MediaType mediaType = MediaTypeFactory.getMediaType(resource)
-        .orElse(MediaType.APPLICATION_OCTET_STREAM);
+                .orElse(MediaType.APPLICATION_OCTET_STREAM);
 
         if (!resource.exists()) {
             return ResponseEntity.notFound().build();
         }
 
         return ResponseEntity.ok()
-            .contentType(mediaType)
-            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + resource.getFilename() + "\"")
-            .body(resource);
+                .contentType(mediaType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + resource.getFilename() + "\"")
+                .body(resource);
     }
 
 }
